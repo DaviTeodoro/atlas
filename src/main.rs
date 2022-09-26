@@ -1,234 +1,145 @@
-mod components;
-mod physics;
+extern crate sdl2;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-// use sdl2::pixels::Color;
-use sdl2::image::{self, InitFlag, LoadTexture};
-use sdl2::rect::{Point, Rect};
-use sdl2::render::{Texture, WindowCanvas};
+use sdl2::pixels;
 
-use specs::prelude::*;
+use sdl2::gfx::primitives::DrawRenderer;
 
-use std::time::Duration;
+const SCREEN_WIDTH: u32 = 800;
+const SCREEN_HEIGHT: u32 = 600;
 
-use crate::components::*;
-
-const PLAYER_MOVEMENT_SPEED: i32 = 6;
-
-/// Returns the row of the spritesheet corresponding to the given direction
-fn direction_spritesheet_row(direction: Direction) -> i32 {
-    use self::Direction::*;
-    match direction {
-        Up => 3,
-        Down => 0,
-        Left => 1,
-        Right => 2,
-    }
+#[derive(Debug)]
+struct Point {
+    x: u32,
+    y: u32,
 }
 
-/// create animation frames for the standard character spritesheet
-fn character_animation_frames(
-    spritesheet: usize,
-    top_left_frame: Rect,
-    direction: Direction,
-) -> Vec<Sprite> {
-    let (width, height) = (top_left_frame.width(), top_left_frame.height());
-    let y_offset = direction_spritesheet_row(direction) * height as i32 + top_left_frame.y();
-
-    let mut frames = Vec::new();
-    for i in 0..3 {
-        frames.push(Sprite {
-            spritesheet,
-            region: Rect::new(
-                top_left_frame.x() + i * width as i32,
-                y_offset,
-                width,
-                height,
-            ),
-        });
-    }
-    frames
+struct Screen {
+    width: u32,
+    height: u32,
 }
 
-fn update_player(player: &mut Player) {
-    match player.direction {
-        Direction::Up => player.position = player.position.offset(0, -player.speed),
-        Direction::Down => player.position = player.position.offset(0, player.speed),
-        Direction::Left => player.position = player.position.offset(-player.speed, 0),
-        Direction::Right => player.position = player.position.offset(player.speed, 0),
+impl Screen {
+    fn new(width: u32, height: u32) -> Screen {
+        Screen { width, height }
     }
-}
+    fn percent_to_pixels(&self, percent_x: f64, percent_y: f64) -> Point {
+        let x = self.width;
+        let y = self.height;
 
-fn render(canvas: &mut WindowCanvas, texture: &Texture, player: &Player) -> Result<(), String> {
-    canvas.clear();
+        Point {
+            x: (x as f64 * percent_x) as u32,
+            y: (y as f64 * percent_y) as u32,
+        }
+    }
+    fn pixels_to_percent(&self, x: u32, y: u32) -> (f64, f64) {
+        let width = self.width;
+        let height = self.height;
 
-    let (width, height) = canvas.output_size()?;
-
-    let (frame_width, frame_height) = player.sprite.size();
-
-    let current_frame = Rect::new(
-        player.sprite.x() + frame_width as i32 * player.current_frame,
-        player.sprite.y() + frame_height as i32 * direction_spritesheet_row(player.direction),
-        frame_width,
-        frame_height,
-    );
-
-    // Treat the center of the screen as the (0, 0) coordinate
-    let screen_position = player.position + Point::new(width as i32 / 2, height as i32 / 2);
-    let screen_rect = Rect::from_center(screen_position, frame_width as u32, frame_height as u32);
-
-    canvas.copy(texture, current_frame, screen_rect)?;
-
-    canvas.present();
-
-    Ok(())
+        ((x as f64 / width as f64), (y as f64 / height as f64))
+    }
 }
 
 fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
-    let video_subsystem = sdl_context.video()?;
-
-    // It has to stay unused because if we don't have any variable at all then Rust will treat it as a
-    // temporary value and drop it right away!
-    let _image_context = image::init(InitFlag::PNG | InitFlag::JPG)?;
-
-    let window = video_subsystem
-        .window("Atlas", 800, 600)
+    let video_subsys = sdl_context.video()?;
+    let screen = Screen::new(SCREEN_WIDTH, SCREEN_HEIGHT);
+    let window = video_subsys
+        .window(
+            "rust-sdl2_gfx: draw line & FPSManager",
+            screen.width,
+            screen.height,
+        )
         .position_centered()
+        .opengl()
         .build()
-        .expect("could not initialize video video_subsystem");
+        .map_err(|e| e.to_string())?;
 
-    let mut canvas = window
-        .into_canvas()
-        .build()
-        .expect("could not make a canvas");
+    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
-    let texture_creator = canvas.texture_creator();
+    canvas.set_draw_color(pixels::Color::RGB(226, 232, 240));
+    canvas.clear();
+    canvas.present();
 
-    let textures = [texture_creator.load_texture("assets/bardo.png")?];
+    let mut lastx = 0;
+    let mut lasty = 0;
 
-    let player_spritesheet = 0;
-    let player_top_left_frame = Rect::new(0, 0, 26, 36);
+    let mut events = sdl_context.event_pump()?;
 
-    let player_animation = MovementAnimation {
-        current_frame: 0,
-        up_frames: character_animation_frames(
-            player_spritesheet,
-            player_top_left_frame,
-            Direction::Up,
-        ),
-        down_frames: character_animation_frames(
-            player_spritesheet,
-            player_top_left_frame,
-            Direction::Down,
-        ),
-        left_frames: character_animation_frames(
-            player_spritesheet,
-            player_top_left_frame,
-            Direction::Left,
-        ),
-        right_frames: character_animation_frames(
-            player_spritesheet,
-            player_top_left_frame,
-            Direction::Right,
-        ),
-    };
-
-    let mut world = World::new();
-
-    world
-        .create_entity()
-        .with(Position(Point::new(0, 0)))
-        .with(Velocity {
-            speed: 0,
-            direction: Direction::Right,
-        })
-        .with(player_animation.right_frames[0].clone())
-        .with(player_animation)
-        .build();
-
-    //events
-    let mut event_pump = sdl_context.event_pump()?;
-    let mut i = 0;
-    'running: loop {
-        // handle events
-        for event in event_pump.poll_iter() {
+    'main: loop {
+        for event in events.poll_iter() {
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => {
-                    break 'running;
-                }
+                Event::Quit { .. } => break 'main,
+
                 Event::KeyDown {
-                    keycode: Some(Keycode::Right),
-                    repeat: false,
+                    keycode: Some(keycode),
                     ..
                 } => {
-                    player.speed = PLAYER_MOVEMENT_SPEED;
-                    player.direction = Direction::Right;
+                    if keycode == Keycode::Escape {
+                        break 'main;
+                    } else if keycode == Keycode::Space {
+                        println!("space down");
+                        for i in 0..1501 {
+                            canvas.filled_trigon(
+                                400,
+                                99,
+                                611,
+                                424,
+                                196,
+                                430,
+                                pixels::Color::RGB(147, 51, 234),
+                            )?;
+                        }
+                        canvas.present();
+                    }
                 }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Up),
-                    repeat: false,
-                    ..
-                } => {
-                    player.speed = PLAYER_MOVEMENT_SPEED;
-                    player.direction = Direction::Up;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Left),
-                    repeat: false,
-                    ..
-                } => {
-                    player.speed = PLAYER_MOVEMENT_SPEED;
-                    player.direction = Direction::Left;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Down),
-                    repeat: false,
-                    ..
-                } => {
-                    player.speed = PLAYER_MOVEMENT_SPEED;
-                    player.direction = Direction::Down;
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::Down),
-                    repeat: false,
-                    ..
-                }
-                | Event::KeyUp {
-                    keycode: Some(Keycode::Up),
-                    repeat: false,
-                    ..
-                }
-                | Event::KeyUp {
-                    keycode: Some(Keycode::Left),
-                    repeat: false,
-                    ..
-                }
-                | Event::KeyUp {
-                    keycode: Some(Keycode::Right),
-                    repeat: false,
-                    ..
-                } => {
-                    player.speed = 0;
+
+                Event::MouseButtonDown { x, y, .. } => {
+                    let color = pixels::Color::RGB(x as u8, y as u8, 255);
+                    let _ = canvas.line(lastx, lasty, x as i16, y as i16, color);
+                    lastx = x as i16;
+                    lasty = y as i16;
+                    println!("mouse btn down at (x:{},y:{})", x, y);
+                    println!("from_lng_lat (x:{:?})", from_lng_lat(-73.9911, 40.7343));
+                    println!(
+                        "percent_to_pixels ({:?})",
+                        screen.percent_to_pixels(
+                            from_lng_lat(-73.9911, 40.7343).0,
+                            from_lng_lat(-73.9911, 40.7343).1
+                        )
+                    );
+                    println!(
+                        "percent_to_pixels ({:?})",
+                        screen.percent_to_pixels(0.50, 0.50)
+                    );
+                    println!(
+                        "percent_to_pixels(x:{:?})",
+                        screen.pixels_to_percent(400, 300)
+                    );
+                    canvas.present();
                 }
 
                 _ => {}
             }
         }
-
-        // update
-        i = (i + 1) % 360;
-        update_player(&mut player);
-
-        // render
-        // render(&mut canvas, &texture, &player)?;
-
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 20));
     }
+
     Ok(())
+}
+
+fn mercator_x_from_lng(lng: f64) -> f64 {
+    (lng + 180.0) / 360.0
+}
+
+fn mercator_y_from_lat(lat: f64) -> f64 {
+    //As TS: (180 - (180 / Math.PI * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)))) / 360
+    (180.0
+        - (180.0 / std::f64::consts::PI
+            * ((std::f64::consts::PI / 4.0 + lat * std::f64::consts::PI / 360.0).tan()).ln()))
+        / 360.0
+}
+
+fn from_lng_lat(lng: f64, lat: f64) -> (f64, f64) {
+    (mercator_x_from_lng(lng), mercator_y_from_lat(lat))
 }
