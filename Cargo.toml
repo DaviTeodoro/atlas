@@ -21,3 +21,4 @@ x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md" }
 [dependencies]
 specs = "0.18.0"
 specs-derive = "0.4.1"
+triangulate = "0.1.0"
