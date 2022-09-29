@@ -6,15 +6,97 @@ use sdl2::pixels;
 
 use sdl2::gfx::primitives::DrawRenderer;
 use triangulate::builders;
-use triangulate::TriangulateDefault;
+use triangulate::{Triangulate, Vertex};
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
 
-#[derive(Debug)]
-struct Vertex {
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+struct VertexTest {
     x: i16,
     y: i16,
+}
+
+impl Into<VertexTest> for (f32, f32) {
+    fn into(self) -> VertexTest {
+        VertexTest {
+            x: self.0 as i16,
+            y: self.1 as i16,
+        }
+    }
+}
+
+impl VertexTest {
+    fn new(x: i16, y: i16) -> Self {
+        VertexTest { x, y }
+    }
+}
+impl Vertex for VertexTest {
+    type Coordinate = f32;
+
+    #[inline(always)]
+    fn x(&self) -> Self::Coordinate {
+        self.x as f32
+    }
+
+    #[inline(always)]
+    fn y(&self) -> Self::Coordinate {
+        self.y as f32
+    }
+}
+//
+#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
+pub struct VTest {
+    x: f32,
+    y: f32,
+}
+
+impl VTest {
+    pub fn new(x: f32, y: f32) -> Self {
+        VTest { x, y }
+    }
+}
+
+impl std::fmt::Debug for VTest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
+impl std::fmt::Display for VTest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
+impl Vertex for VTest {
+    type Coordinate = f32;
+
+    #[inline(always)]
+    fn x(&self) -> Self::Coordinate {
+        self.x
+    }
+
+    #[inline(always)]
+    fn y(&self) -> Self::Coordinate {
+        self.y
+    }
+}
+
+impl Into<VTest> for (f32, f32) {
+    fn into(self) -> VTest {
+        VTest::new(self.0, self.1)
+    }
+}
+//
+
+fn square() -> Vec<VertexTest> {
+    vec![
+        (0.0, 0.0).into(),
+        (100.0, 0.0).into(),
+        (100.0, 100.0).into(),
+        (0.0, 100.0).into(),
+    ]
 }
 
 struct Screen {
@@ -51,41 +133,22 @@ impl Atlas {
     //     //     .expect("Triangulation failed");
     // }
 
-    fn point_to_vertex(&self, point: Point) -> Vertex {
+    fn vertex(&self, point: Point) -> VertexTest {
         let screen = &self.screen;
         let (x, y) = from_lng_lat(point);
         screen.percent_to_pixels(x, y)
     }
 }
 
-fn mercator_x_from_lng(lng: f64) -> f64 {
-    (lng + 180.0) / 360.0
-}
-
-fn mercator_y_from_lat(lat: f64) -> f64 {
-    //As TS: (180 - (180 / Math.PI * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)))) / 360
-    (180.0
-        - (180.0 / std::f64::consts::PI
-            * ((std::f64::consts::PI / 4.0 + lat * std::f64::consts::PI / 360.0).tan()).ln()))
-        / 360.0
-}
-
-fn from_lng_lat(point: Point) -> (f64, f64) {
-    (
-        mercator_x_from_lng(point.lng),
-        mercator_y_from_lat(point.lat),
-    )
-}
-
 impl Screen {
     fn new(width: u32, height: u32) -> Screen {
         Screen { width, height }
     }
-    fn percent_to_pixels(&self, percent_x: f64, percent_y: f64) -> Vertex {
+    fn percent_to_pixels(&self, percent_x: f64, percent_y: f64) -> VertexTest {
         let x = self.width;
         let y = self.height;
 
-        Vertex {
+        VertexTest {
             x: (x as f64 * percent_x) as i16,
             y: (y as f64 * percent_y) as i16,
         }
@@ -138,9 +201,9 @@ fn main() -> Result<(), String> {
                         break 'main;
                     } else if keycode == Keycode::Space {
                         println!("space down");
-                        let point_a = Vertex { x: 400, y: 99 };
-                        let point_b = Vertex { x: 611, y: 424 };
-                        let point_c = Vertex { x: 196, y: 430 };
+                        let point_a = VertexTest { x: 400, y: 99 };
+                        let point_b = VertexTest { x: 611, y: 424 };
+                        let point_c = VertexTest { x: 196, y: 430 };
                         for i in 0..10 {
                             canvas.filled_trigon(
                                 point_a.x + i,
@@ -162,13 +225,43 @@ fn main() -> Result<(), String> {
                     lastx = x as i16;
                     lasty = y as i16;
 
-                    let point = Point {
+                    let new_york = Point {
                         lat: -73.9911,
                         lng: 40.7386,
                     };
 
+                    let polygons: Vec<Vec<VTest>> = vec![
+                        vec![
+                            (0., 0.).into(),
+                            (0., 1.).into(),
+                            (1., 1.).into(),
+                            (1., 0.).into(),
+                        ],
+                        vec![
+                            (0.05, 0.05).into(),
+                            (0.05, 0.95).into(),
+                            (0.95, 0.95).into(),
+                            (0.95, 0.05).into(),
+                        ],
+                    ];
+
+                    match polygons.triangulate::<builders::VecVecFanBuilder<_>>(&mut Vec::new()) {
+                        Ok(triangulation) => {
+                            for fan in triangulation {
+                                print!("(");
+                                for vertex in fan {
+                                    print!("({:?}, {:?}), ", vertex.x, vertex.y);
+                                }
+                                print!("), ");
+                            }
+                        }
+                        Err(e) => {
+                            println!("Error: {}", e);
+                        }
+                    }
+
                     println!("mouse btn down at (x:{},y:{})", x, y);
-                    println!("from_lng_lat (x:{:?})", from_lng_lat(point));
+                    println!("from_lng_lat (x:{:?})", from_lng_lat(new_york));
                     // println!(
                     //     "percent_to_pixels ({:?})",
                     //     screen.percent_to_pixels(0.50, 0.50)
@@ -177,10 +270,7 @@ fn main() -> Result<(), String> {
                     //     "pixels_to_percent(x:{:?})",
                     //     screen.pixels_to_percent(400, 300)
                     // );
-                    println!(
-                        "atlas point_to_vertex(x:{:?})",
-                        atlas.point_to_vertex(point)
-                    );
+                    println!("a vertex from a point (x:{:?})", atlas.vertex(new_york));
                     canvas.present();
                 }
 
@@ -190,4 +280,23 @@ fn main() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn mercator_x_from_lng(lng: f64) -> f64 {
+    (lng + 180.0) / 360.0
+}
+
+fn mercator_y_from_lat(lat: f64) -> f64 {
+    //As TS: (180 - (180 / Math.PI * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)))) / 360
+    (180.0
+        - (180.0 / std::f64::consts::PI
+            * ((std::f64::consts::PI / 4.0 + lat * std::f64::consts::PI / 360.0).tan()).ln()))
+        / 360.0
+}
+
+fn from_lng_lat(point: Point) -> (f64, f64) {
+    (
+        mercator_x_from_lng(point.lng),
+        mercator_y_from_lat(point.lat),
+    )
 }
