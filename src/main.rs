@@ -1,113 +1,82 @@
 extern crate sdl2;
-
 use sdl2::event::Event;
+use sdl2::gfx::primitives::DrawRenderer;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels;
 
-use sdl2::gfx::primitives::DrawRenderer;
 use triangulate::builders;
-use triangulate::{Triangulate, Vertex};
+use triangulate::Triangulate;
+
+use geojson::{Feature, GeoJson, Geometry, Value};
+use std::convert::TryFrom;
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
-struct VertexTest {
+struct Vertex {
     x: i16,
     y: i16,
 }
 
-impl Into<VertexTest> for (f32, f32) {
-    fn into(self) -> VertexTest {
-        VertexTest {
+impl Into<Vertex> for (f32, f32) {
+    fn into(self) -> Vertex {
+        Vertex {
             x: self.0 as i16,
             y: self.1 as i16,
         }
     }
 }
 
-impl VertexTest {
-    fn new(x: i16, y: i16) -> Self {
-        VertexTest { x, y }
-    }
-}
-impl Vertex for VertexTest {
-    type Coordinate = f32;
-
-    #[inline(always)]
-    fn x(&self) -> Self::Coordinate {
-        self.x as f32
-    }
-
-    #[inline(always)]
-    fn y(&self) -> Self::Coordinate {
-        self.y as f32
-    }
-}
 //
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
-pub struct VTest {
-    x: f32,
-    y: f32,
+pub struct Point {
+    lat: f64,
+    lng: f64,
 }
 
-impl VTest {
-    pub fn new(x: f32, y: f32) -> Self {
-        VTest { x, y }
+impl Point {
+    pub fn new(lat: f64, lng: f64) -> Self {
+        Point { lat, lng }
     }
 }
 
-impl std::fmt::Debug for VTest {
+impl std::fmt::Debug for Point {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {})", self.x, self.y)
+        write!(f, "({}, {})", self.lat, self.lng)
     }
 }
 
-impl std::fmt::Display for VTest {
+impl std::fmt::Display for Point {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {})", self.x, self.y)
+        write!(f, "({}, {})", self.lat, self.lng)
     }
 }
 
-impl Vertex for VTest {
+impl triangulate::Vertex for Point {
     type Coordinate = f32;
 
     #[inline(always)]
     fn x(&self) -> Self::Coordinate {
-        self.x
+        self.lat as f32
     }
 
     #[inline(always)]
     fn y(&self) -> Self::Coordinate {
-        self.y
+        self.lng as f32
     }
 }
 
-impl Into<VTest> for (f32, f32) {
-    fn into(self) -> VTest {
-        VTest::new(self.0, self.1)
+impl Into<Point> for (f64, f64) {
+    fn into(self) -> Point {
+        Point::new(self.1, self.0)
     }
 }
 //
-
-fn square() -> Vec<VertexTest> {
-    vec![
-        (0.0, 0.0).into(),
-        (100.0, 0.0).into(),
-        (100.0, 100.0).into(),
-        (0.0, 100.0).into(),
-    ]
-}
 
 struct Screen {
     width: u32,
     height: u32,
-}
-
-#[derive(Default, Copy, Clone)]
-struct Point {
-    lat: f64,
-    lng: f64,
 }
 
 struct Atlas {
@@ -118,22 +87,8 @@ impl Atlas {
     fn new(screen: Screen) -> Atlas {
         Atlas { screen }
     }
-    //TODO: return vec<trigon> for feature
-    // fn draw(&self, geometry: Vec<usize>) -> Vec<Vec<(f64, f64)>> {
-    //     let screen = &self.screen;
-    //     let (x, y) = screen.pixels_to_percent(100, 100);
-    //     let point = screen.percent_to_pixels(x, y);
-    //     let polygons: Vec<Vec<(f64, f64)>> = vec![
-    //         vec![(0., 0.), (0., 1.), (1., 1.), (1., 0.)],
-    //         vec![(0.05, 0.05), (0.05, 0.95), (0.95, 0.95), (0.95, 0.05)],
-    //     ];
-    //     // let output: Vec<Vec<(f64,f64)>> = polygons.triangulate_default::<builders::VecVecFanBuilder<_>>()?;
-    //     // polygons
-    //     //     .triangulate_default::<builders::VecVecIndexedFanBuilder<_>>()
-    //     //     .expect("Triangulation failed");
-    // }
 
-    fn vertex(&self, point: Point) -> VertexTest {
+    fn vertex(&self, point: Point) -> Vertex {
         let screen = &self.screen;
         let (x, y) = from_lng_lat(point);
         screen.percent_to_pixels(x, y)
@@ -144,11 +99,11 @@ impl Screen {
     fn new(width: u32, height: u32) -> Screen {
         Screen { width, height }
     }
-    fn percent_to_pixels(&self, percent_x: f64, percent_y: f64) -> VertexTest {
+    fn percent_to_pixels(&self, percent_x: f64, percent_y: f64) -> Vertex {
         let x = self.width;
         let y = self.height;
 
-        VertexTest {
+        Vertex {
             x: (x as f64 * percent_x) as i16,
             y: (y as f64 * percent_y) as i16,
         }
@@ -201,21 +156,20 @@ fn main() -> Result<(), String> {
                         break 'main;
                     } else if keycode == Keycode::Space {
                         println!("space down");
-                        let point_a = VertexTest { x: 400, y: 99 };
-                        let point_b = VertexTest { x: 611, y: 424 };
-                        let point_c = VertexTest { x: 196, y: 430 };
-                        for i in 0..10 {
-                            canvas.filled_trigon(
-                                point_a.x + i,
-                                point_a.y,
-                                point_b.x + i,
-                                point_b.y,
-                                point_c.x + i,
-                                point_c.y,
-                                pixels::Color::RGB(147, 51, 234),
-                            )?;
-                        }
-                        canvas.present();
+
+                        let geojson_str = r#"
+                                            {
+                                              "type": "Feature",
+                                              "properties": { "food": "donuts" },
+                                              "geometry": {
+                                                "type": "Point",
+                                                "coordinates": [ -118.2836, 34.0956 ]
+                                              }
+                                            }
+                                            "#;
+                        let geojson: GeoJson = geojson_str.parse::<GeoJson>().unwrap();
+                        let feature: Feature = Feature::try_from(geojson).unwrap();
+                        println!("feature: {:?}", feature);
                     }
                 }
 
@@ -230,47 +184,41 @@ fn main() -> Result<(), String> {
                         lng: 40.7386,
                     };
 
-                    let polygons: Vec<Vec<VTest>> = vec![
-                        vec![
-                            (0., 0.).into(),
-                            (0., 1.).into(),
-                            (1., 1.).into(),
-                            (1., 0.).into(),
-                        ],
-                        vec![
-                            (0.05, 0.05).into(),
-                            (0.05, 0.95).into(),
-                            (0.95, 0.95).into(),
-                            (0.95, 0.05).into(),
-                        ],
-                    ];
+                    let usa_bound_box: Vec<Vec<Point>> = vec![vec![
+                        (-126., 23.).into(),
+                        (-60., 23.).into(),
+                        (-60., 50.).into(),
+                        (-126., 50.).into(),
+                    ]];
 
-                    match polygons.triangulate::<builders::VecVecFanBuilder<_>>(&mut Vec::new()) {
-                        Ok(triangulation) => {
-                            for fan in triangulation {
-                                print!("(");
-                                for vertex in fan {
-                                    print!("({:?}, {:?}), ", vertex.x, vertex.y);
-                                }
-                                print!("), ");
+                    match triangulate(usa_bound_box) {
+                        Some(points) => {
+                            for i in 0..(points.iter().count() & 3) {
+                                let point_a = points[(i * 3)];
+                                let point_b = points[(i * 3) + 1];
+                                let point_c = points[(i * 3) + 2];
+
+                                let trigon: Vec<Vertex> = vec![
+                                    atlas.vertex(point_a),
+                                    atlas.vertex(point_b),
+                                    atlas.vertex(point_c),
+                                ];
+
+                                canvas.filled_trigon(
+                                    trigon[0].x,
+                                    trigon[0].y,
+                                    trigon[2].x,
+                                    trigon[2].y,
+                                    trigon[1].x,
+                                    trigon[1].y,
+                                    pixels::Color::RGB(50 * i as u8, 51, 234),
+                                )?;
                             }
                         }
-                        Err(e) => {
-                            println!("Error: {}", e);
-                        }
+                        None => {}
                     }
 
                     println!("mouse btn down at (x:{},y:{})", x, y);
-                    println!("from_lng_lat (x:{:?})", from_lng_lat(new_york));
-                    // println!(
-                    //     "percent_to_pixels ({:?})",
-                    //     screen.percent_to_pixels(0.50, 0.50)
-                    // );
-                    // println!(
-                    //     "pixels_to_percent(x:{:?})",
-                    //     screen.pixels_to_percent(400, 300)
-                    // );
-                    println!("a vertex from a point (x:{:?})", atlas.vertex(new_york));
                     canvas.present();
                 }
 
@@ -287,11 +235,9 @@ fn mercator_x_from_lng(lng: f64) -> f64 {
 }
 
 fn mercator_y_from_lat(lat: f64) -> f64 {
-    //As TS: (180 - (180 / Math.PI * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)))) / 360
-    (180.0
-        - (180.0 / std::f64::consts::PI
-            * ((std::f64::consts::PI / 4.0 + lat * std::f64::consts::PI / 360.0).tan()).ln()))
-        / 360.0
+    let sin_lat = lat.to_radians().sin();
+    0.5 - ((1.0 + sin_lat) / (1.0 - sin_lat)).log(std::f64::consts::E)
+        / (4.0 * std::f64::consts::PI)
 }
 
 fn from_lng_lat(point: Point) -> (f64, f64) {
@@ -299,4 +245,36 @@ fn from_lng_lat(point: Point) -> (f64, f64) {
         mercator_x_from_lng(point.lng),
         mercator_y_from_lat(point.lat),
     )
+}
+
+fn triangulate(polygons: Vec<Vec<Point>>) -> Option<Vec<Point>> {
+    let result = polygons
+        .triangulate::<builders::VecVecFanBuilder<_>>(&mut Vec::new())
+        .ok()?
+        .iter()
+        .map(|fan| {
+            if fan.len() == 3 {
+                Some(vec![
+                    (fan[0].lng, fan[0].lat).into(),
+                    (fan[1].lng, fan[1].lat).into(),
+                    (fan[2].lng, fan[2].lat).into(),
+                ])
+            } else if fan.len() == 4 {
+                Some(vec![
+                    (fan[0].lng, fan[0].lat).into(),
+                    (fan[1].lng, fan[1].lat).into(),
+                    (fan[2].lng, fan[2].lat).into(),
+                    (fan[0].lng, fan[0].lat).into(),
+                    (fan[2].lng, fan[2].lat).into(),
+                    (fan[3].lng, fan[3].lat).into(),
+                ])
+            } else {
+                None
+            }
+        })
+        .collect::<Option<Vec<Vec<_>>>>()?
+        .into_iter()
+        .flat_map(|x| x.into_iter())
+        .collect();
+    Some(result)
 }
