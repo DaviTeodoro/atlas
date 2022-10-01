@@ -25,7 +25,9 @@ rev = "261c458af6e3eed5d099144aff95d2b5035f656b"
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md" }
 
 [dependencies]
-geojson = { version = "0.24.0", features = ["geo-types"] }
+geojson = { version = "*", features = ["geo-types"] }
 specs = "0.18.0"
 specs-derive = "0.4.1"
 triangulate = "0.1.0"
+geo = "0.23.0"
+geo-types = "0.7.7"

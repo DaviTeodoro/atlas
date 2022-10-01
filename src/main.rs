@@ -1,4 +1,5 @@
 extern crate sdl2;
+use geo::CoordsIter;
 use sdl2::event::Event;
 use sdl2::gfx::primitives::DrawRenderer;
 use sdl2::keyboard::Keycode;
@@ -7,8 +8,7 @@ use sdl2::pixels;
 use triangulate::builders;
 use triangulate::Triangulate;
 
-use geojson::{Feature, GeoJson, Geometry, Value};
-use std::convert::TryFrom;
+use geojson::{quick_collection, GeoJson};
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
@@ -72,6 +72,11 @@ impl Into<Point> for (f64, f64) {
         Point::new(self.1, self.0)
     }
 }
+impl Into<Point> for geo_types::Coordinate {
+    fn into(self) -> Point {
+        Point::new(self.y, self.x)
+    }
+}
 //
 
 struct Screen {
@@ -116,6 +121,39 @@ impl Screen {
     // }
 }
 
+trait GeoTriangulate {
+    fn triangulatex(&self) -> Option<Vec<Point>>;
+}
+impl GeoTriangulate for geo_types::Geometry {
+    fn triangulatex(&self) -> Option<Vec<Point>> {
+        match self {
+            geo_types::Geometry::Point { .. } => None,
+            geo_types::Geometry::Line { .. } => None,
+            geo_types::Geometry::LineString { .. } => None,
+            geo_types::Geometry::Polygon { .. } => {
+                let coords = self.coords_iter().map(|c| c.into()).collect::<Vec<Point>>();
+                println!("coords: {:?}", coords);
+                match triangulate(vec![coords]) {
+                    Some(triangles) => {
+                        println!("triangles: {:?}", triangles);
+                        Some(triangles)
+                    }
+                    None => {
+                        println!("triangles: None");
+                        None
+                    }
+                }
+            }
+            geo_types::Geometry::MultiPoint { .. } => None,
+            geo_types::Geometry::MultiLineString { .. } => None,
+            geo_types::Geometry::MultiPolygon { .. } => None,
+            geo_types::Geometry::GeometryCollection { .. } => None,
+            geo_types::Geometry::Rect { .. } => None,
+            geo_types::Geometry::Triangle { .. } => None,
+        }
+    }
+}
+
 fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
     let video_subsys = sdl_context.video()?;
@@ -156,21 +194,8 @@ fn main() -> Result<(), String> {
                         break 'main;
                     } else if keycode == Keycode::Space {
                         println!("space down");
-
-                        let geojson_str = r#"
-                                            {
-                                              "type": "Feature",
-                                              "properties": { "food": "donuts" },
-                                              "geometry": {
-                                                "type": "Point",
-                                                "coordinates": [ -118.2836, 34.0956 ]
-                                              }
-                                            }
-                                            "#;
-                        let geojson: GeoJson = geojson_str.parse::<GeoJson>().unwrap();
-                        let feature: Feature = Feature::try_from(geojson).unwrap();
-                        println!("feature: {:?}", feature);
                     }
+                    canvas.present();
                 }
 
                 Event::MouseButtonDown { x, y, .. } => {
@@ -179,45 +204,85 @@ fn main() -> Result<(), String> {
                     lastx = x as i16;
                     lasty = y as i16;
 
-                    let new_york = Point {
-                        lat: -73.9911,
-                        lng: 40.7386,
-                    };
+                    let geojson_str = r#"
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "stroke-width": 2,
+        "stroke-opacity": 1,
+        "fill-opacity": 0.5,
+        "name": "Brasil"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -75.23,
+              -34.59
+            ],
+            [
+              -33.75,
+              -34.59
+            ],
+            [
+              -33.75,
+              4.21
+            ],
+            [
+              -75.23,
+              4.21
+            ],
+            [
+              -75.23,
+              -34.59
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
+"#;
+                    let geojson = geojson_str.parse::<GeoJson>().unwrap();
+                    // Turn the GeoJSON string into a geo_types GeometryCollection
+                    quick_collection(&geojson)
+                        .unwrap()
+                        .iter()
+                        .for_each(|geometry| match geometry.triangulatex() {
+                            Some(points) => {
+                                for i in 0..(points.iter().count() / 3) {
+                                    let point_a = points[(i * 3)];
+                                    let point_b = points[(i * 3) + 1];
+                                    let point_c = points[(i * 3) + 2];
 
-                    let usa_bound_box: Vec<Vec<Point>> = vec![vec![
-                        (-126., 23.).into(),
-                        (-60., 23.).into(),
-                        (-60., 50.).into(),
-                        (-126., 50.).into(),
-                    ]];
+                                    let trigon: Vec<Vertex> = vec![
+                                        atlas.vertex(point_a),
+                                        atlas.vertex(point_b),
+                                        atlas.vertex(point_c),
+                                    ];
+                                    println!("trigon {:?}", trigon);
 
-                    match triangulate(usa_bound_box) {
-                        Some(points) => {
-                            for i in 0..(points.iter().count() & 3) {
-                                let point_a = points[(i * 3)];
-                                let point_b = points[(i * 3) + 1];
-                                let point_c = points[(i * 3) + 2];
-
-                                let trigon: Vec<Vertex> = vec![
-                                    atlas.vertex(point_a),
-                                    atlas.vertex(point_b),
-                                    atlas.vertex(point_c),
-                                ];
-
-                                canvas.filled_trigon(
-                                    trigon[0].x,
-                                    trigon[0].y,
-                                    trigon[2].x,
-                                    trigon[2].y,
-                                    trigon[1].x,
-                                    trigon[1].y,
-                                    pixels::Color::RGB(50 * i as u8, 51, 234),
-                                )?;
+                                    canvas
+                                        .filled_trigon(
+                                            trigon[0].x,
+                                            trigon[0].y,
+                                            trigon[2].x,
+                                            trigon[2].y,
+                                            trigon[1].x,
+                                            trigon[1].y,
+                                            pixels::Color::RGB(50 * i as u8, 51, 234),
+                                        )
+                                        .expect("failed to draw triangle");
+                                }
                             }
-                        }
-                        None => {}
-                    }
-
+                            None => {
+                                println!("failed to triangulate")
+                            }
+                        });
                     println!("mouse btn down at (x:{},y:{})", x, y);
                     canvas.present();
                 }
@@ -248,33 +313,35 @@ fn from_lng_lat(point: Point) -> (f64, f64) {
 }
 
 fn triangulate(polygons: Vec<Vec<Point>>) -> Option<Vec<Point>> {
-    let result = polygons
-        .triangulate::<builders::VecVecFanBuilder<_>>(&mut Vec::new())
+    let a_polygons: Vec<Point> = vec![
+        (-34.59704151614416, -75.234375).into(),
+        (-34.59704151614416, -33.75).into(),
+        (4.214943141390651, -33.75).into(),
+        (4.214943141390651, -75.234375).into(),
+        // (-34.59704151614416, -75.234375).into(),
+    ];
+    let t_polygons: Vec<Point> = vec![
+        (-54.140625, 9.795677582829743).into(),
+        (-16.875, -1.7575368113083125).into(),
+        (-6.328125, -29.22889003019423).into(),
+        (-18.6328125, -51.835777520452474).into(),
+        (-49.21875, -60.06484046010449).into(),
+        (-62.22656249999999, -55.37911044801048).into(), // (-34.59704151614416, -75.234375).into(),
+    ];
+    let b_polygons: Vec<Point> = vec![
+        (-40., -1.).into(),
+        (-44., -32.).into(),
+        (-10., -38.).into(),
+        (-10., -13.).into(),
+        (-12., 1.).into(),
+        (-17., 7.).into(),
+        // (-40.078125, -1.4061088354351594).into(),
+    ];
+    let result = t_polygons
+        .triangulate::<builders::FanToListAdapter<_, builders::VecListBuilder<_>>>(&mut Vec::new())
         .ok()?
         .iter()
-        .map(|fan| {
-            if fan.len() == 3 {
-                Some(vec![
-                    (fan[0].lng, fan[0].lat).into(),
-                    (fan[1].lng, fan[1].lat).into(),
-                    (fan[2].lng, fan[2].lat).into(),
-                ])
-            } else if fan.len() == 4 {
-                Some(vec![
-                    (fan[0].lng, fan[0].lat).into(),
-                    (fan[1].lng, fan[1].lat).into(),
-                    (fan[2].lng, fan[2].lat).into(),
-                    (fan[0].lng, fan[0].lat).into(),
-                    (fan[2].lng, fan[2].lat).into(),
-                    (fan[3].lng, fan[3].lat).into(),
-                ])
-            } else {
-                None
-            }
-        })
-        .collect::<Option<Vec<Vec<_>>>>()?
-        .into_iter()
-        .flat_map(|x| x.into_iter())
+        .map(|point| point.clone())
         .collect();
     Some(result)
 }
