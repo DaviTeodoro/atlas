@@ -4,11 +4,104 @@ use sdl2::event::Event;
 use sdl2::gfx::primitives::DrawRenderer;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels;
+use sdl2::render::Canvas;
 
 use geojson::{quick_collection, GeoJson};
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
+
+fn main() -> Result<(), String> {
+    let sdl_context = sdl2::init()?;
+    let video_subsys = sdl_context.video()?;
+    let screen = Screen::new(SCREEN_WIDTH, SCREEN_HEIGHT);
+    let atlas = Atlas::new(screen);
+    let mut camera = Camera::new();
+    let window = video_subsys
+        .window(
+            "rust-sdl2_gfx: draw line & FPSManager",
+            SCREEN_WIDTH,
+            SCREEN_HEIGHT,
+        )
+        .position_centered()
+        .opengl()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut is_draging = false;
+    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+
+    canvas.set_draw_color(pixels::Color::RGB(226, 232, 240));
+    canvas.clear();
+
+    let geojson = geojson_str().parse::<GeoJson>().unwrap();
+    draw(&geojson, &mut canvas, &atlas, &camera);
+
+    let mut events = sdl_context.event_pump()?;
+
+    'main: loop {
+        for event in events.poll_iter() {
+            match event {
+                Event::Quit { .. } => break 'main,
+
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    ..
+                } => {
+                    if keycode == Keycode::Escape {
+                        break 'main;
+                    } else if keycode == Keycode::Space {
+                        println!("space down");
+                    }
+                    canvas.present();
+                }
+
+                Event::MouseButtonDown { x, y, .. } => {
+                    // let color = pixels::Color::RGB(x as u8, y as u8, 255);
+
+                    println!("mouse btn down at (x:{},y:{})", x, y);
+                    is_draging = true;
+                    canvas.present();
+                }
+
+                Event::MouseMotion {
+                    timestamp,
+                    window_id,
+                    which,
+                    mousestate,
+                    x,
+                    y,
+                    ..
+                } => {
+                    println!("mouse motion at (x:{},y:{})", x, y);
+                    println!("isDraging {}", is_draging);
+                    if is_draging {
+                        camera.move_to(x as u32, y as u32)
+                    };
+                    canvas.clear();
+                    draw(&geojson, &mut canvas, &atlas, &camera);
+                }
+
+                Event::MouseButtonUp {
+                    timestamp,
+                    window_id,
+                    which,
+                    mouse_btn,
+                    clicks,
+                    x,
+                    y,
+                } => {
+                    is_draging = false;
+                    println!("mouse btn up at (x:{},y:{})", x, y);
+                }
+
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 struct Vertex {
@@ -103,28 +196,45 @@ impl Screen {
     // }
 }
 
-fn main() -> Result<(), String> {
-    let sdl_context = sdl2::init()?;
-    let video_subsys = sdl_context.video()?;
-    let screen = Screen::new(SCREEN_WIDTH, SCREEN_HEIGHT);
-    let atlas = Atlas::new(screen);
-    let window = video_subsys
-        .window(
-            "rust-sdl2_gfx: draw line & FPSManager",
-            SCREEN_WIDTH,
-            SCREEN_HEIGHT,
-        )
-        .position_centered()
-        .opengl()
-        .build()
-        .map_err(|e| e.to_string())?;
+#[derive(Debug)]
+struct Camera {
+    x: u32,
+    y: u32,
+    prev_x: u32,
+    prev_y: u32,
+    delta_x: i32,
+    delta_y: i32,
+    zoom: f64,
+}
 
-    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+impl Camera {
+    fn new() -> Camera {
+        Camera {
+            x: SCREEN_WIDTH / 2,
+            y: SCREEN_HEIGHT / 2,
+            prev_x: SCREEN_WIDTH / 2,
+            prev_y: SCREEN_HEIGHT / 2,
+            delta_x: 0,
+            delta_y: 0,
+            zoom: 1.0,
+        }
+    }
+    fn move_to(&mut self, x: u32, y: u32) {
+        self.prev_x = self.x;
+        self.prev_y = self.y;
+        self.x = x;
+        self.y = y;
+        self.delta_x = self.x as i32 - self.prev_x as i32;
+        self.delta_y = self.y as i32 - self.prev_y as i32;
+    }
+}
 
-    canvas.set_draw_color(pixels::Color::RGB(226, 232, 240));
-    canvas.clear();
-
-    let geojson = geojson_str().parse::<GeoJson>().unwrap();
+fn draw(
+    geojson: &GeoJson,
+    canvas: &mut Canvas<sdl2::video::Window>,
+    atlas: &Atlas,
+    camera: &Camera,
+) {
     quick_collection(&geojson)
         .unwrap()
         .iter()
@@ -138,52 +248,19 @@ fn main() -> Result<(), String> {
                 .map(|c| atlas.vertex(*c))
                 .collect::<Vec<Vertex>>();
             // println!("coords: {:?}", vertices);
+            println!("camera: {:?}", camera);
             let (vx, vy) = vertices.iter().fold((vec![], vec![]), |acc, vertex| {
                 (
-                    [acc.0, vec![vertex.x]].concat(),
-                    [acc.1, vec![vertex.y]].concat(),
+                    [acc.0, vec![vertex.x + camera.delta_x as i16]].concat(),
+                    [acc.1, vec![vertex.y + camera.delta_y as i16]].concat(),
                 )
             });
             canvas
-                .filled_polygon(&vx, &vy, pixels::Color::RGB(50, 51, 234))
+                .filled_polygon(&vx, &vy, pixels::Color::RGB(171, 191, 218))
                 .expect("failed to draw triangle");
         });
     canvas.present();
-
-    let mut events = sdl_context.event_pump()?;
-
-    'main: loop {
-        for event in events.poll_iter() {
-            match event {
-                Event::Quit { .. } => break 'main,
-
-                Event::KeyDown {
-                    keycode: Some(keycode),
-                    ..
-                } => {
-                    if keycode == Keycode::Escape {
-                        break 'main;
-                    } else if keycode == Keycode::Space {
-                        println!("space down");
-                    }
-                    canvas.present();
-                }
-
-                Event::MouseButtonDown { x, y, .. } => {
-                    // let color = pixels::Color::RGB(x as u8, y as u8, 255);
-
-                    println!("mouse btn down at (x:{},y:{})", x, y);
-                    canvas.present();
-                }
-
-                _ => {}
-            }
-        }
-    }
-
-    Ok(())
 }
-
 fn mercator_x_from_lng(lng: f64) -> f64 {
     (lng + 180.0) / 360.0
 }
