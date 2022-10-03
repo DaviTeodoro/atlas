@@ -1,6 +1,9 @@
 extern crate sdl2;
+
 mod atlas;
 mod camera;
+mod components;
+mod physics;
 mod point;
 mod renderer;
 mod screen;
@@ -8,7 +11,6 @@ mod vertex;
 
 use atlas::Atlas;
 use point::Point;
-use renderer::render;
 use screen::Screen;
 use vertex::Vertex;
 
@@ -16,7 +18,12 @@ use geo::CoordsIter;
 use geojson::{quick_collection, GeoJson};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels;
+
+use crate::components::*;
+
+use specs::prelude::*;
+
+use std::time::Duration;
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
@@ -54,16 +61,30 @@ fn main() -> Result<(), String> {
     let mut is_draging = false;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
-    canvas.set_draw_color(pixels::Color::RGB(226, 232, 240));
-    canvas.clear();
-
     let geometry_list: Vec<Vec<Vertex>> = geojson_str()
         .parse::<GeoJson>()
         .unwrap()
         .into_geometry_list(&atlas);
 
-    render(&geometry_list, &mut canvas);
+    let mut dispatcher = DispatcherBuilder::new()
+        .with(physics::Physics, "Physics", &[])
+        .build();
 
+    let mut world = World::new();
+    dispatcher.setup(&mut world);
+    renderer::SystemData::setup(&mut world);
+
+    world
+        .create_entity()
+        .with(Geometry(geometry_list))
+        .with(Velocity {
+            speed: 0,
+            direction: Direction::Right,
+        })
+        // .with(Color)
+        .build();
+
+    renderer::render(world.system_data(), &mut canvas)?;
     let mut events = sdl_context.event_pump()?;
 
     'main: loop {
@@ -101,6 +122,8 @@ fn main() -> Result<(), String> {
                 _ => {}
             }
         }
+        // Time management!
+        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 20));
     }
 
     Ok(())

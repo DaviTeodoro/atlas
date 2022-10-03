@@ -2,6 +2,15 @@ use sdl2::rect::{Point, Rect};
 use specs::prelude::*;
 use specs_derive::Component;
 
+use crate::vertex::Vertex;
+/// The current geometry of a shape
+#[derive(Component, Debug, Clone)]
+#[storage(VecStorage)]
+pub struct Geometry(pub Vec<Vec<Vertex>>);
+// impl IntoIterator for Geometry {
+//     // add code here
+// }
+
 #[derive(Debug, Clone, Copy)]
 pub enum Direction {
     Up,
