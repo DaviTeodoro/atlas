@@ -1,28 +1,51 @@
 extern crate sdl2;
+mod atlas;
+mod camera;
+mod point;
+mod renderer;
+mod screen;
+mod vertex;
+
+use atlas::Atlas;
+use point::Point;
+use renderer::render;
+use screen::Screen;
+use vertex::Vertex;
+
 use geo::CoordsIter;
+use geojson::{quick_collection, GeoJson};
 use sdl2::event::Event;
-use sdl2::gfx::primitives::DrawRenderer;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels;
-use sdl2::render::Canvas;
-
-use geojson::{quick_collection, GeoJson};
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
+
+trait IntoGeometryList {
+    fn into_geometry_list(&self, atlas: &Atlas) -> Vec<Vec<Vertex>>;
+}
+impl IntoGeometryList for GeoJson {
+    fn into_geometry_list(&self, atlas: &Atlas) -> Vec<Vec<Vertex>> {
+        quick_collection(&self)
+            .unwrap()
+            .iter()
+            .map(|geometry| {
+                geometry
+                    .coords_iter()
+                    .map(|c| atlas.vertex(c.into()))
+                    .collect::<Vec<Vertex>>()
+            })
+            .collect()
+    }
+}
 
 fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
     let video_subsys = sdl_context.video()?;
     let screen = Screen::new(SCREEN_WIDTH, SCREEN_HEIGHT);
     let atlas = Atlas::new(screen);
-    let mut camera = Camera::new();
     let window = video_subsys
-        .window(
-            "rust-sdl2_gfx: draw line & FPSManager",
-            SCREEN_WIDTH,
-            SCREEN_HEIGHT,
-        )
+        .window("Atlas", SCREEN_WIDTH, SCREEN_HEIGHT)
         .position_centered()
         .opengl()
         .build()
@@ -34,8 +57,12 @@ fn main() -> Result<(), String> {
     canvas.set_draw_color(pixels::Color::RGB(226, 232, 240));
     canvas.clear();
 
-    let geojson = geojson_str().parse::<GeoJson>().unwrap();
-    draw(&geojson, &mut canvas, &atlas, &camera);
+    let geometry_list: Vec<Vec<Vertex>> = geojson_str()
+        .parse::<GeoJson>()
+        .unwrap()
+        .into_geometry_list(&atlas);
+
+    render(&geometry_list, &mut canvas);
 
     let mut events = sdl_context.event_pump()?;
 
@@ -56,41 +83,17 @@ fn main() -> Result<(), String> {
                     canvas.present();
                 }
 
-                Event::MouseButtonDown { x, y, .. } => {
-                    // let color = pixels::Color::RGB(x as u8, y as u8, 255);
-
-                    println!("mouse btn down at (x:{},y:{})", x, y);
+                Event::MouseButtonDown { .. } => {
                     is_draging = true;
-                    canvas.present();
                 }
 
-                Event::MouseMotion {
-                    timestamp,
-                    window_id,
-                    which,
-                    mousestate,
-                    x,
-                    y,
-                    ..
-                } => {
+                Event::MouseMotion { x, y, .. } => {
                     println!("mouse motion at (x:{},y:{})", x, y);
                     println!("isDraging {}", is_draging);
-                    if is_draging {
-                        camera.move_to(x as u32, y as u32)
-                    };
-                    canvas.clear();
-                    draw(&geojson, &mut canvas, &atlas, &camera);
+                    if is_draging {};
                 }
 
-                Event::MouseButtonUp {
-                    timestamp,
-                    window_id,
-                    which,
-                    mouse_btn,
-                    clicks,
-                    x,
-                    y,
-                } => {
+                Event::MouseButtonUp { x, y, .. } => {
                     is_draging = false;
                     println!("mouse btn up at (x:{},y:{})", x, y);
                 }
@@ -101,181 +104,6 @@ fn main() -> Result<(), String> {
     }
 
     Ok(())
-}
-
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
-struct Vertex {
-    x: i16,
-    y: i16,
-}
-impl Into<Vertex> for (f32, f32) {
-    fn into(self) -> Vertex {
-        Vertex {
-            x: self.0 as i16,
-            y: self.1 as i16,
-        }
-    }
-}
-
-//
-#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
-pub struct Point {
-    lat: f64,
-    lng: f64,
-}
-
-impl Point {
-    pub fn new(lat: f64, lng: f64) -> Self {
-        Point { lat, lng }
-    }
-}
-
-impl std::fmt::Debug for Point {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {})", self.lat, self.lng)
-    }
-}
-
-impl std::fmt::Display for Point {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {})", self.lat, self.lng)
-    }
-}
-
-impl Into<Point> for (f64, f64) {
-    fn into(self) -> Point {
-        Point::new(self.1, self.0)
-    }
-}
-impl Into<Point> for geo_types::Coordinate {
-    fn into(self) -> Point {
-        Point::new(self.y, self.x)
-    }
-}
-//
-
-struct Screen {
-    width: u32,
-    height: u32,
-}
-
-struct Atlas {
-    screen: Screen,
-}
-
-impl Atlas {
-    fn new(screen: Screen) -> Atlas {
-        Atlas { screen }
-    }
-
-    fn vertex(&self, point: Point) -> Vertex {
-        let screen = &self.screen;
-        let (x, y) = from_lng_lat(point);
-        screen.percent_to_pixels(x, y)
-    }
-}
-
-impl Screen {
-    fn new(width: u32, height: u32) -> Screen {
-        Screen { width, height }
-    }
-    fn percent_to_pixels(&self, percent_x: f64, percent_y: f64) -> Vertex {
-        let x = self.width;
-        let y = self.height;
-
-        Vertex {
-            x: (x as f64 * percent_x) as i16,
-            y: (y as f64 * percent_y) as i16,
-        }
-    }
-    // fn pixels_to_percent(&self, x: u32, y: u32) -> (f64, f64) {
-    //     let width = self.width;
-    //     let height = self.height;
-
-    //     ((x as f64 / width as f64), (y as f64 / height as f64))
-    // }
-}
-
-#[derive(Debug)]
-struct Camera {
-    x: u32,
-    y: u32,
-    prev_x: u32,
-    prev_y: u32,
-    delta_x: i32,
-    delta_y: i32,
-    zoom: f64,
-}
-
-impl Camera {
-    fn new() -> Camera {
-        Camera {
-            x: SCREEN_WIDTH / 2,
-            y: SCREEN_HEIGHT / 2,
-            prev_x: SCREEN_WIDTH / 2,
-            prev_y: SCREEN_HEIGHT / 2,
-            delta_x: 0,
-            delta_y: 0,
-            zoom: 1.0,
-        }
-    }
-    fn move_to(&mut self, x: u32, y: u32) {
-        self.prev_x = self.x;
-        self.prev_y = self.y;
-        self.x = x;
-        self.y = y;
-        self.delta_x = self.x as i32 - self.prev_x as i32;
-        self.delta_y = self.y as i32 - self.prev_y as i32;
-    }
-}
-
-fn draw(
-    geojson: &GeoJson,
-    canvas: &mut Canvas<sdl2::video::Window>,
-    atlas: &Atlas,
-    camera: &Camera,
-) {
-    quick_collection(&geojson)
-        .unwrap()
-        .iter()
-        .for_each(|geometry| {
-            let coords = geometry
-                .coords_iter()
-                .map(|c| c.into())
-                .collect::<Vec<Point>>();
-            let vertices = coords
-                .iter()
-                .map(|c| atlas.vertex(*c))
-                .collect::<Vec<Vertex>>();
-            // println!("coords: {:?}", vertices);
-            println!("camera: {:?}", camera);
-            let (vx, vy) = vertices.iter().fold((vec![], vec![]), |acc, vertex| {
-                (
-                    [acc.0, vec![vertex.x + camera.delta_x as i16]].concat(),
-                    [acc.1, vec![vertex.y + camera.delta_y as i16]].concat(),
-                )
-            });
-            canvas
-                .filled_polygon(&vx, &vy, pixels::Color::RGB(171, 191, 218))
-                .expect("failed to draw triangle");
-        });
-    canvas.present();
-}
-fn mercator_x_from_lng(lng: f64) -> f64 {
-    (lng + 180.0) / 360.0
-}
-
-fn mercator_y_from_lat(lat: f64) -> f64 {
-    let sin_lat = lat.to_radians().sin();
-    0.5 - ((1.0 + sin_lat) / (1.0 - sin_lat)).log(std::f64::consts::E)
-        / (4.0 * std::f64::consts::PI)
-}
-
-fn from_lng_lat(point: Point) -> (f64, f64) {
-    (
-        mercator_x_from_lng(point.lng),
-        mercator_y_from_lat(point.lat),
-    )
 }
 
 fn geojson_str() -> String {
