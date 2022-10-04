@@ -8,8 +8,8 @@ use crate::components::*;
 pub type SystemData<'a> = ReadStorage<'a, Geometry>;
 
 pub fn render(data: SystemData, canvas: &mut WindowCanvas) -> Result<(), String> {
-    canvas.clear();
     canvas.set_draw_color(pixels::Color::RGB(226, 232, 240));
+    canvas.clear();
     for geometry in (&data).join() {
         for shape in geometry.0.iter() {
             let (vx, vy) = shape.iter().fold((vec![], vec![]), |acc, vertex| {
@@ -18,9 +18,7 @@ pub fn render(data: SystemData, canvas: &mut WindowCanvas) -> Result<(), String>
                     [acc.1, vec![vertex.y]].concat(),
                 )
             });
-            canvas
-                .filled_polygon(&vx, &vy, pixels::Color::RGB(171, 191, 218))
-                .expect("failed to draw triangle");
+            canvas.filled_polygon(&vx, &vy, pixels::Color::RGB(171, 191, 218))?;
         }
     }
     canvas.present();

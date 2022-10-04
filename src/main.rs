@@ -3,6 +3,7 @@ extern crate sdl2;
 mod atlas;
 mod camera;
 mod components;
+mod keyboard;
 mod physics;
 mod point;
 mod renderer;
@@ -24,6 +25,11 @@ use crate::components::*;
 use specs::prelude::*;
 
 use std::time::Duration;
+
+pub enum MovementCommand {
+    Stop,
+    Move(Direction),
+}
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
@@ -58,24 +64,28 @@ fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut is_draging = false;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
-    let geometry_list: Vec<Vec<Vertex>> = geojson_str()
-        .parse::<GeoJson>()
-        .unwrap()
-        .into_geometry_list(&atlas);
-
     let mut dispatcher = DispatcherBuilder::new()
-        .with(physics::Physics, "Physics", &[])
+        .with(keyboard::Keyboard, "Keyboard", &[])
+        .with(physics::Physics, "Physics", &["Keyboard"])
         .build();
 
     let mut world = World::new();
     dispatcher.setup(&mut world);
     renderer::SystemData::setup(&mut world);
 
+    let movement_command: Option<MovementCommand> = None;
+    world.insert(movement_command);
+
+    let geometry_list: Vec<Vec<Vertex>> = geojson_str()
+        .parse::<GeoJson>()
+        .unwrap()
+        .into_geometry_list(&atlas);
+
     world
         .create_entity()
+        .with(KeyboardControlled)
         .with(Geometry(geometry_list))
         .with(Velocity {
             speed: 0,
@@ -84,46 +94,83 @@ fn main() -> Result<(), String> {
         // .with(Color)
         .build();
 
-    renderer::render(world.system_data(), &mut canvas)?;
     let mut events = sdl_context.event_pump()?;
-
     'main: loop {
+        let mut movement_command = None;
         for event in events.poll_iter() {
             match event {
-                Event::Quit { .. } => break 'main,
-
-                Event::KeyDown {
-                    keycode: Some(keycode),
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
                     ..
                 } => {
-                    if keycode == Keycode::Escape {
-                        break 'main;
-                    } else if keycode == Keycode::Space {
-                        println!("space down");
-                    }
-                    canvas.present();
+                    break 'main;
                 }
-
-                Event::MouseButtonDown { .. } => {
-                    is_draging = true;
+                Event::KeyDown {
+                    keycode: Some(Keycode::Left),
+                    repeat: false,
+                    ..
+                } => {
+                    movement_command = Some(MovementCommand::Move(Direction::Left));
                 }
-
-                Event::MouseMotion { x, y, .. } => {
-                    println!("mouse motion at (x:{},y:{})", x, y);
-                    println!("isDraging {}", is_draging);
-                    if is_draging {};
+                Event::KeyDown {
+                    keycode: Some(Keycode::Right),
+                    repeat: false,
+                    ..
+                } => {
+                    movement_command = Some(MovementCommand::Move(Direction::Right));
                 }
-
-                Event::MouseButtonUp { x, y, .. } => {
-                    is_draging = false;
-                    println!("mouse btn up at (x:{},y:{})", x, y);
+                Event::KeyDown {
+                    keycode: Some(Keycode::Up),
+                    repeat: false,
+                    ..
+                } => {
+                    movement_command = Some(MovementCommand::Move(Direction::Up));
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Down),
+                    repeat: false,
+                    ..
+                } => {
+                    movement_command = Some(MovementCommand::Move(Direction::Down));
+                }
+                Event::KeyUp {
+                    keycode: Some(Keycode::Left),
+                    repeat: false,
+                    ..
+                }
+                | Event::KeyUp {
+                    keycode: Some(Keycode::Right),
+                    repeat: false,
+                    ..
+                }
+                | Event::KeyUp {
+                    keycode: Some(Keycode::Up),
+                    repeat: false,
+                    ..
+                }
+                | Event::KeyUp {
+                    keycode: Some(Keycode::Down),
+                    repeat: false,
+                    ..
+                } => {
+                    movement_command = Some(MovementCommand::Stop);
                 }
 
                 _ => {}
             }
         }
+        *world.write_resource() = movement_command;
+
+        // Update
+        dispatcher.dispatch(&mut world);
+        world.maintain();
+
+        // Render
+        renderer::render(world.system_data(), &mut canvas)?;
+
         // Time management!
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 20));
+        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 120));
     }
 
     Ok(())
