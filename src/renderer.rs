@@ -8,7 +8,7 @@ use crate::components::*;
 pub type SystemData<'a> = ReadStorage<'a, Geometry>;
 
 pub fn render(data: SystemData, canvas: &mut WindowCanvas) -> Result<(), String> {
-    canvas.set_draw_color(pixels::Color::RGB(226, 232, 240));
+    canvas.set_draw_color(pixels::Color::RGB(171, 191, 218));
     canvas.clear();
     for geometry in (&data).join() {
         for shape in geometry.0.iter() {
@@ -18,7 +18,8 @@ pub fn render(data: SystemData, canvas: &mut WindowCanvas) -> Result<(), String>
                     [acc.1, vec![vertex.y]].concat(),
                 )
             });
-            canvas.filled_polygon(&vx, &vy, pixels::Color::RGB(171, 191, 218))?;
+            canvas.filled_polygon(&vx, &vy, pixels::Color::RGB(226, 232, 240))?;
+            canvas.aa_polygon(&vx, &vy, pixels::Color::RGB(197, 205, 233))?;
         }
     }
     canvas.present();
