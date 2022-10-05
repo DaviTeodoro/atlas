@@ -36,6 +36,36 @@ pub enum MovementCommand {
     Stop,
     Move(Direction),
 }
+#[derive(Debug, Clone, Copy)]
+pub enum MouseCommand {
+    Click((i32, i32)),
+    Hold((i32, i32)),
+    Release((i32, i32)),
+    Scroll((i32, i32)),
+    None,
+}
+
+impl MouseCommand {
+    fn update(&self, position: Option<(i32, i32)>) -> MouseCommand {
+        match position {
+            Some(position) => match self {
+                MouseCommand::Click(_) => MouseCommand::Hold(position),
+                MouseCommand::Hold(_) => MouseCommand::Hold(position),
+                MouseCommand::Release(_) => MouseCommand::None,
+                MouseCommand::Scroll(_) => MouseCommand::Scroll(position),
+                MouseCommand::None => MouseCommand::None,
+            },
+            None => match self {
+                MouseCommand::Hold(_) | MouseCommand::None | MouseCommand::Scroll(_) => {
+                    self.to_owned()
+                }
+
+                MouseCommand::Click(old_position) => MouseCommand::Hold(*old_position),
+                MouseCommand::Release(_) => MouseCommand::None,
+            },
+        }
+    }
+}
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
@@ -45,7 +75,6 @@ fn match_geometry(geom: Geometry, world: &mut World, atlas: &Atlas) {
     match geom.value {
         Value::Polygon(_) => {
             let poly: Polygon<f64> = geom.value.try_into().expect("Unable to convert Polygon");
-            // let centroid = poly.centroid().unwrap();
             let geometries = poly
                 .coords_iter()
                 .map(|c| atlas.vertex(c.into()))
@@ -163,6 +192,8 @@ fn main() -> Result<(), String> {
     renderer::SystemData::setup(&mut world);
 
     let movement_command: Option<MovementCommand> = None;
+    let mut mouse_command: MouseCommand = MouseCommand::None;
+    world.insert(mouse_command.clone());
     world.insert(movement_command);
 
     let contents = load_str!("./../assets/custom.geojson");
@@ -173,6 +204,7 @@ fn main() -> Result<(), String> {
     let mut events = sdl_context.event_pump()?;
     'main: loop {
         let mut movement_command = None;
+
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -232,16 +264,24 @@ fn main() -> Result<(), String> {
                 } => {
                     movement_command = Some(MovementCommand::Stop);
                 }
+                Event::MouseButtonDown { x, y, .. } => mouse_command = MouseCommand::Click((x, y)),
+                Event::MouseMotion { x, y, .. } => {
+                    mouse_command = mouse_command.update(Some((x, y)))
+                }
+                Event::MouseButtonUp { x, y, .. } => {
+                    mouse_command = MouseCommand::Release((x, y));
+                }
 
                 _ => {}
             }
         }
         *world.write_resource() = movement_command;
-
+        *world.write_resource() = mouse_command;
+        println!("mouse command: {:?}", mouse_command);
         // Update
         dispatcher.dispatch(&mut world);
         world.maintain();
-
+        mouse_command = mouse_command.update(None);
         // Render
         renderer::render(world.system_data(), &mut canvas)?;
 
