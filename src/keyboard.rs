@@ -4,7 +4,7 @@ use crate::components::*;
 
 use super::MovementCommand;
 
-const SPEED: i32 = 5;
+const SPEED: i16 = 5;
 
 pub struct Keyboard;
 
@@ -22,11 +22,24 @@ impl<'a> System<'a> for Keyboard {
 
         for (_, vel) in (&data.1, &mut data.2).join() {
             match movement_command {
-                &MovementCommand::Move(direction) => {
-                    vel.speed = SPEED;
-                    vel.direction = direction;
+                &MovementCommand::Move(direction) => match direction {
+                    Direction::Up => {
+                        vel.y = -SPEED;
+                    }
+                    Direction::Down => {
+                        vel.y = SPEED;
+                    }
+                    Direction::Left => {
+                        vel.x = -SPEED;
+                    }
+                    Direction::Right => {
+                        vel.x = SPEED;
+                    }
+                },
+                MovementCommand::Stop => {
+                    vel.x = 0;
+                    vel.y = 0
                 }
-                MovementCommand::Stop => vel.speed = 0,
             };
         }
     }

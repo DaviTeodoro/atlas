@@ -4,9 +4,9 @@ extern crate sdl2;
 extern crate load_file;
 
 mod atlas;
-mod camera;
 mod components;
 mod keyboard;
+mod mouse;
 mod physics;
 mod point;
 mod renderer;
@@ -30,7 +30,7 @@ use rayon::prelude::*;
 
 use specs::prelude::*;
 
-use std::time::Duration;
+// use std::time::Duration;
 
 pub enum MovementCommand {
     Stop,
@@ -39,7 +39,7 @@ pub enum MovementCommand {
 #[derive(Debug, Clone, Copy)]
 pub enum MouseCommand {
     Click((i32, i32)),
-    Hold((i32, i32)),
+    Hold((i32, i32, i32, i32)),
     Release((i32, i32)),
     Scroll((i32, i32)),
     None,
@@ -49,18 +49,26 @@ impl MouseCommand {
     fn update(&self, position: Option<(i32, i32)>) -> MouseCommand {
         match position {
             Some(position) => match self {
-                MouseCommand::Click(_) => MouseCommand::Hold(position),
-                MouseCommand::Hold(_) => MouseCommand::Hold(position),
+                MouseCommand::Click(_) => MouseCommand::Hold((position.0, position.1, 0, 0)),
+                MouseCommand::Hold(last_position) => MouseCommand::Hold((
+                    position.0,
+                    position.1,
+                    last_position.0 - position.0,
+                    last_position.1 - position.1,
+                )),
                 MouseCommand::Release(_) => MouseCommand::None,
                 MouseCommand::Scroll(_) => MouseCommand::Scroll(position),
                 MouseCommand::None => MouseCommand::None,
             },
             None => match self {
-                MouseCommand::Hold(_) | MouseCommand::None | MouseCommand::Scroll(_) => {
-                    self.to_owned()
-                }
+                MouseCommand::None | MouseCommand::Scroll(_) => self.to_owned(),
 
-                MouseCommand::Click(old_position) => MouseCommand::Hold(*old_position),
+                MouseCommand::Hold(old_position) => {
+                    MouseCommand::Hold((old_position.0, old_position.1, 0, 0))
+                }
+                MouseCommand::Click(old_position) => {
+                    MouseCommand::Hold((old_position.0, old_position.1, 0, 0))
+                }
                 MouseCommand::Release(_) => MouseCommand::None,
             },
         }
@@ -82,11 +90,9 @@ fn match_geometry(geom: Geometry, world: &mut World, atlas: &Atlas) {
             world
                 .create_entity()
                 .with(KeyboardControlled)
+                .with(MouseControlled)
                 .with(Geometry(vec![geometries]))
-                .with(Velocity {
-                    speed: 0,
-                    direction: Direction::Right,
-                })
+                .with(Velocity { x: 0, y: 0 })
                 .build();
         }
         Value::MultiPolygon(_) => {
@@ -105,11 +111,9 @@ fn match_geometry(geom: Geometry, world: &mut World, atlas: &Atlas) {
             world
                 .create_entity()
                 .with(KeyboardControlled)
+                .with(MouseControlled)
                 .with(Geometry(geometries))
-                .with(Velocity {
-                    speed: 0,
-                    direction: Direction::Right,
-                })
+                .with(Velocity { x: 0, y: 0 })
                 .build();
         }
         Value::GeometryCollection(collection) => {
@@ -184,17 +188,20 @@ fn main() -> Result<(), String> {
 
     let mut dispatcher = DispatcherBuilder::new()
         .with(keyboard::Keyboard, "Keyboard", &[])
-        .with(physics::Physics, "Physics", &["Keyboard"])
+        .with(mouse::Mouse, "Mouse", &[])
+        .with(physics::Physics, "Physics", &["Keyboard", "Mouse"])
         .build();
 
     let mut world = World::new();
     dispatcher.setup(&mut world);
+
     renderer::SystemData::setup(&mut world);
 
     let movement_command: Option<MovementCommand> = None;
     let mut mouse_command: MouseCommand = MouseCommand::None;
     world.insert(mouse_command.clone());
     world.insert(movement_command);
+    world.insert(Camera::new());
 
     let contents = load_str!("./../assets/custom.geojson");
     let geojson = contents.parse::<GeoJson>().unwrap();
@@ -286,7 +293,7 @@ fn main() -> Result<(), String> {
         renderer::render(world.system_data(), &mut canvas)?;
 
         // Time management!
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 120));
+        // ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 260));
     }
 
     Ok(())

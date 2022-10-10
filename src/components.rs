@@ -8,10 +8,70 @@ use crate::vertex::Vertex;
 #[storage(NullStorage)]
 pub struct KeyboardControlled;
 
+#[derive(Component, Debug, Default)]
+#[storage(NullStorage)]
+pub struct MouseControlled;
+
 /// The current geometry of a shape
 #[derive(Component, Debug, Clone)]
 #[storage(VecStorage)]
 pub struct Geometry(pub Vec<Vec<Vertex>>);
+
+/// The current camera state
+#[derive(Component, Debug)]
+#[storage(VecStorage)]
+pub struct Camera {
+    x: i32,
+    y: i32,
+    drag_start_x: i32,
+    drag_start_y: i32,
+    pub zoom: f32,
+    pub delta_x: i32,
+    pub delta_y: i32,
+    pub offset_x: i32,
+    pub offset_y: i32,
+    is_dragging: bool,
+}
+
+impl Camera {
+    pub fn new() -> Camera {
+        Camera {
+            x: 0,
+            y: 0,
+            drag_start_x: 0,
+            drag_start_y: 0,
+            zoom: 1.0,
+            delta_x: 0,
+            delta_y: 0,
+            offset_x: 0,
+            offset_y: 0,
+            is_dragging: false,
+        }
+    }
+    pub fn move_to(&mut self, x: i32, y: i32) {
+        if self.is_dragging {
+            self.x = x;
+            self.y = y;
+            self.delta_x = self.x - self.drag_start_x;
+            self.delta_y = self.y - self.drag_start_y;
+            self.offset_x += self.delta_x;
+            self.offset_y += self.delta_y;
+            self.drag_start_x = self.x;
+            self.drag_start_y = self.y;
+        }
+        self.set_drag_start(x, y)
+    }
+    pub fn set_drag_start(&mut self, x: i32, y: i32) {
+        self.is_dragging = true;
+        self.drag_start_x = x;
+        self.drag_start_y = y;
+    }
+    pub fn set_drag_end(&mut self) {
+        self.drag_start_x = 0;
+        self.drag_start_y = 0;
+        self.is_dragging = false;
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum Direction {
@@ -30,8 +90,8 @@ pub struct Position(pub Point);
 #[derive(Component, Debug)]
 #[storage(VecStorage)]
 pub struct Velocity {
-    pub speed: i32,
-    pub direction: Direction,
+    pub x: i16,
+    pub y: i16,
 }
 
 #[derive(Component, Debug, Clone)]
