@@ -31,45 +31,121 @@ use rayon::prelude::*;
 use specs::prelude::*;
 
 // use std::time::Duration;
-
 pub enum MovementCommand {
     Stop,
     Move(Direction),
 }
+
+#[derive(Debug, Clone, Copy)]
+pub enum ScrollDirection {
+    Up,
+    Down,
+}
+
+impl From<i32> for ScrollDirection {
+    fn from(number: i32) -> Self {
+        match number {
+            1 => ScrollDirection::Up,
+            -1 => ScrollDirection::Down,
+            _ => panic!("Invalid scroll direction"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum MouseCommand {
-    Click((i32, i32)),
-    Hold((i32, i32, i32, i32)),
-    Release((i32, i32)),
-    Scroll((i32, i32)),
+    Click,
+    Hold,
+    Release,
+    Scroll(ScrollDirection),
     None,
 }
 
-impl MouseCommand {
-    fn update(&self, position: Option<(i32, i32)>) -> MouseCommand {
-        match position {
-            Some(position) => match self {
-                MouseCommand::Click(_) => MouseCommand::Hold((position.0, position.1, 0, 0)),
-                MouseCommand::Hold(last_position) => MouseCommand::Hold((
-                    position.0,
-                    position.1,
-                    last_position.0 - position.0,
-                    last_position.1 - position.1,
-                )),
-                MouseCommand::Release(_) => MouseCommand::None,
-                MouseCommand::Scroll(_) => MouseCommand::Scroll(position),
-                MouseCommand::None => MouseCommand::None,
-            },
-            None => match self {
-                MouseCommand::None | MouseCommand::Scroll(_) => self.to_owned(),
+#[derive(Debug, Clone, Copy)]
+pub struct Cursor {
+    x: i32,
+    y: i32,
+    command: MouseCommand,
+}
 
-                MouseCommand::Hold(old_position) => {
-                    MouseCommand::Hold((old_position.0, old_position.1, 0, 0))
-                }
-                MouseCommand::Click(old_position) => {
-                    MouseCommand::Hold((old_position.0, old_position.1, 0, 0))
-                }
-                MouseCommand::Release(_) => MouseCommand::None,
+impl Cursor {
+    fn new() -> Cursor {
+        Cursor {
+            x: 0,
+            y: 0,
+            command: MouseCommand::None,
+        }
+    }
+
+    fn set_command(&self, command: MouseCommand, position: Option<(i32, i32)>) -> Cursor {
+        let (x, y) = match position {
+            Some((x, y)) => (x, y),
+            None => (self.x, self.y),
+        };
+        match command {
+            MouseCommand::Click => Cursor { x, y, command },
+            MouseCommand::Hold => Cursor { x, y, command },
+            MouseCommand::Release => Cursor { x, y, command },
+            MouseCommand::Scroll(_) => Cursor { x, y, command },
+            MouseCommand::None => Cursor { x, y, command },
+        }
+    }
+
+    fn update(&self, position: Option<(i32, i32)>) -> Cursor {
+        match position {
+            Some(position) => match self.command {
+                MouseCommand::Click => Cursor {
+                    x: position.0,
+                    y: position.1,
+                    command: MouseCommand::Hold,
+                },
+                MouseCommand::Hold => Cursor {
+                    x: position.0,
+                    y: position.1,
+                    command: MouseCommand::Hold,
+                },
+                MouseCommand::Release => Cursor {
+                    x: position.0,
+                    y: position.1,
+                    command: MouseCommand::None,
+                },
+                MouseCommand::Scroll(direction) => Cursor {
+                    x: position.0,
+                    y: position.1,
+                    command: MouseCommand::Scroll(direction),
+                },
+                MouseCommand::None => Cursor {
+                    x: position.0,
+                    y: position.1,
+                    command: MouseCommand::None,
+                },
+            },
+            None => match self.command {
+                MouseCommand::None => Cursor {
+                    x: self.x,
+                    y: self.y,
+                    command: self.command,
+                },
+                MouseCommand::Scroll(_) => Cursor {
+                    x: self.x,
+                    y: self.y,
+                    command: MouseCommand::None,
+                },
+                MouseCommand::Hold => Cursor {
+                    x: self.x,
+                    y: self.y,
+                    command: MouseCommand::Hold,
+                },
+                MouseCommand::Click => Cursor {
+                    x: self.x,
+                    y: self.y,
+                    command: MouseCommand::Hold,
+                },
+                MouseCommand::Release => Cursor {
+                    x: self.x,
+                    y: self.y,
+                    command: MouseCommand::None,
+                },
             },
         }
     }
@@ -198,8 +274,9 @@ fn main() -> Result<(), String> {
     renderer::SystemData::setup(&mut world);
 
     let movement_command: Option<MovementCommand> = None;
-    let mut mouse_command: MouseCommand = MouseCommand::None;
-    world.insert(mouse_command.clone());
+    let mut cursor = Cursor::new();
+
+    world.insert(cursor.clone());
     world.insert(movement_command);
     world.insert(Camera::new());
 
@@ -271,24 +348,29 @@ fn main() -> Result<(), String> {
                 } => {
                     movement_command = Some(MovementCommand::Stop);
                 }
-                Event::MouseButtonDown { x, y, .. } => mouse_command = MouseCommand::Click((x, y)),
-                Event::MouseMotion { x, y, .. } => {
-                    mouse_command = mouse_command.update(Some((x, y)))
+                Event::MouseButtonDown { x, y, .. } => {
+                    cursor = cursor.set_command(MouseCommand::Click, Some((x, y)))
                 }
+                Event::MouseMotion { x, y, .. } => cursor = cursor.update(Some((x, y))),
                 Event::MouseButtonUp { x, y, .. } => {
-                    mouse_command = MouseCommand::Release((x, y));
+                    cursor = cursor.set_command(MouseCommand::Release, Some((x, y)))
+                }
+
+                Event::MouseWheel { y, .. } => {
+                    cursor = cursor.set_command(MouseCommand::Scroll(y.into()), None)
                 }
 
                 _ => {}
             }
         }
         *world.write_resource() = movement_command;
-        *world.write_resource() = mouse_command;
-        println!("mouse command: {:?}", mouse_command);
+        *world.write_resource() = cursor;
+
+        // println!("mouse command: {:?}", cursor);
         // Update
         dispatcher.dispatch(&mut world);
         world.maintain();
-        mouse_command = mouse_command.update(None);
+        cursor = cursor.update(None);
         // Render
         renderer::render(world.system_data(), &mut canvas)?;
 
