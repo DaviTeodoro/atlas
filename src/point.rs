@@ -1,6 +1,8 @@
+use crate::Vertex;
 use std::f64::consts::{E, PI};
 
-use crate::Vertex;
+const DEG_TO_RAD: f32 = (PI / 180.0) as f32;
+const RAD_TO_DEG: f32 = (180.0 / PI) as f32;
 
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct Point {
@@ -20,6 +22,17 @@ impl Point {
             y: (y * screen_height),
         }
     }
+    pub fn get_tile(&self, zoom: i32) -> (i32, i32, i32) {
+        let sin = (self.lat * DEG_TO_RAD).sin();
+        let zoom_squared = zoom.pow(2) as f32;
+        let mut x = zoom_squared * (self.lng / 360. + 0.5);
+        let y = zoom_squared * (0.5 - 0.25 * ((1. + sin) / (1. - sin)).log(E as f32) / PI as f32);
+        x = x % zoom_squared;
+        if x < 0. {
+            x = x + zoom_squared;
+        }
+        (x as i32, y as i32, zoom)
+    }
 }
 
 impl std::fmt::Debug for Point {
@@ -34,11 +47,25 @@ impl std::fmt::Display for Point {
     }
 }
 
+impl Into<Point> for geo_types::Coordinate<f32> {
+    fn into(self) -> Point {
+        Point {
+            lng: self.x,
+            lat: self.y,
+        }
+    }
+}
 impl Into<Point> for (f32, f32) {
     fn into(self) -> Point {
         Point::new(self.1, self.0)
     }
 }
+impl Into<Point> for (f64, f64) {
+    fn into(self) -> Point {
+        Point::new(self.1 as f32, self.0 as f32)
+    }
+}
+
 impl Into<Point> for geo_types::Coordinate {
     fn into(self) -> Point {
         Point::new(self.y as f32, self.x as f32)

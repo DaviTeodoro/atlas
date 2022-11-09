@@ -1,5 +1,5 @@
 use bevy::{
-    input::mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
+    input::mouse::{MouseScrollUnit, MouseWheel},
     prelude::*,
 };
 // Camera
@@ -30,7 +30,7 @@ fn zoom_to(
         .cursor_position()
         .map(|cursor_pos| (cursor_pos / window_size) * 2. - Vec2::ONE);
 
-    for (cam, mut proj, mut pos) in &mut query {
+    for (_, mut proj, mut pos) in &mut query {
         let old_scale = proj.scale;
         proj.scale = (proj.scale * (1. + -scroll * 0.003)).max(0.01).min(2.);
 
@@ -58,7 +58,7 @@ fn move_to(
         None => return,
     };
 
-    for (cam, mut transform, projection) in &mut query {
+    for (_, mut transform, projection) in &mut query {
         let delta_device_pixels = current_pos - last_pos.unwrap_or(current_pos);
 
         if vec![MouseButton::Left, MouseButton::Right, MouseButton::Middle]
@@ -72,7 +72,7 @@ fn move_to(
             let world_units_per_device_pixel = proj_size / window_size;
 
             let delta_world = delta_device_pixels * world_units_per_device_pixel;
-            let mut proposed_cam_transform = transform.translation - delta_world.extend(0.);
+            let proposed_cam_transform = transform.translation - delta_world.extend(0.);
 
             transform.translation = proposed_cam_transform;
         }
